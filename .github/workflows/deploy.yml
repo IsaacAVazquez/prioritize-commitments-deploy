@@ -1,0 +1,64 @@
+# Deploys the team repo's main to Vercel production whenever main has moved.
+# It lives in this personal repo because the team repo belongs to OTUS, where only an
+# admin can add secrets, and Vercel's Hobby plan can't deploy a private org repo itself.
+#
+# Secrets on this repo:
+#   SOURCE_TOKEN  a GitHub token that can read otus-edu/NPD-team-team-h-prioritize-commitments
+#   VERCEL_TOKEN  a Vercel token for the prioritize-commitments project
+name: Deploy main
+
+on:
+  schedule:
+    # ponytail: polls every 30 minutes to stay inside the free 2,000 private Actions
+    # minutes a month. Make this repo public and it can poll every 5 at no cost.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+concurrency: production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE: otus-edu/NPD-team-team-h-prioritize-commitments
+      VERCEL_ORG_ID: team_jiIHvX2K1njWTZQq6A98WfzY
+      VERCEL_PROJECT_ID: prj_rFJyORClB62yof9eYi3EqKh4JbPa
+    steps:
+      - name: Find main's latest commit
+        id: main
+        env:
+          SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          sha=$(git ls-remote "https://x-access-token:${SOURCE_TOKEN}@github.com/${SOURCE}.git" refs/heads/main | cut -f1)
+          test -n "$sha" || { echo "::error::Could not read $SOURCE. Check SOURCE_TOKEN."; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "$sha" > deployed
+
+      # A cache entry per deployed commit records what is already live.
+      - name: Check whether that commit is already deployed
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: deployed
+          key: deployed-${{ steps.main.outputs.sha }}
+          lookup-only: true
+
+      - if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE }}
+          ref: ${{ steps.main.outputs.sha }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          path: source
+
+      - if: steps.seen.outputs.cache-hit != 'true'
+        working-directory: source
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@62.4.0 deploy --prod --yes --token "$VERCEL_TOKEN"
+
+      - if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: deployed
+          key: deployed-${{ steps.main.outputs.sha }}
