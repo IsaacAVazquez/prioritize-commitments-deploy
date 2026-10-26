@@ -9,9 +9,9 @@ name: Deploy main
 
 on:
   schedule:
-    # ponytail: polls every 30 minutes to stay inside the free 2,000 private Actions
-    # minutes a month. Make this repo public and it can poll every 5 at no cost.
-    - cron: '*/30 * * * *'
+    # Every 5 minutes, which GitHub allows at most. This repo is public, so the runs
+    # cost no Actions minutes. GitHub may run a scheduled job a few minutes late.
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 concurrency: production
