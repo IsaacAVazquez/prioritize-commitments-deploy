@@ -19,6 +19,9 @@ concurrency: production
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A normal deploy takes about two minutes. Without this, a Vercel build that never
+    # finishes holds the job for GitHub's six-hour limit, as it did from November 17.
+    timeout-minutes: 20
     env:
       SOURCE: otus-edu/NPD-team-team-h-prioritize-commitments
       VERCEL_ORG_ID: team_jiIHvX2K1njWTZQq6A98WfzY
@@ -50,6 +53,24 @@ jobs:
           ref: ${{ steps.main.outputs.sha }}
           token: ${{ secrets.SOURCE_TOKEN }}
           path: source
+
+      # Hobby projects build one deployment at a time, so one stuck build blocks every
+      # later one. Cancel builds of this project that started over 30 minutes ago.
+      - name: Cancel stale Vercel builds
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          api=https://api.vercel.com
+          cutoff=$(( ($(date +%s) - 1800) * 1000 ))
+          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$api/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&state=BUILDING,QUEUED,INITIALIZING&limit=20" \
+            | jq -r --argjson cutoff "$cutoff" '.deployments[] | select(.created < $cutoff) | "\(.uid) \(.state) \(.url)"' \
+            | while read -r uid state url; do
+                echo "Cancelling $uid ($state) $url"
+                curl -fsS -X PATCH -H "Authorization: Bearer $VERCEL_TOKEN" \
+                  "$api/v12/deployments/$uid/cancel?teamId=$VERCEL_ORG_ID" > /dev/null
+              done
 
       - if: steps.seen.outputs.cache-hit != 'true'
         working-directory: source
